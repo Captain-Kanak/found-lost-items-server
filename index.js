@@ -29,9 +29,19 @@ async function run() {
     // await client.connect();
 
     // database collections
+    const itemsCollection = client.db("found_lost_items").collection("items");
 
     // items related APIs
-    app.post("/items", (req, res) => {});
+    app.get("/items", async (req, res) => {
+      const result = await itemsCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.post("/items", async (req, res) => {
+      const items = req.body;
+      const result = await itemsCollection.insertOne(items);
+      res.send(result);
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
