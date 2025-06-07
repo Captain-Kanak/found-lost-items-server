@@ -33,7 +33,7 @@ async function run() {
 
     // items related APIs
     app.get("/items", async (req, res) => {
-      const result = await itemsCollection.find().toArray();
+      const result = await itemsCollection.find().sort({ date: -1 }).toArray();
       res.send(result);
     });
 
