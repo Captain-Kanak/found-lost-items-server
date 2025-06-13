@@ -1,7 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 // create app & port
 const app = express();
@@ -30,6 +30,9 @@ async function run() {
 
     // database collections
     const itemsCollection = client.db("found_lost_items").collection("items");
+    const recoveredItemsCollection = client
+      .db("found_lost_items")
+      .collection("recovered_items");
 
     // items related APIs
     app.get("/items", async (req, res) => {
@@ -37,9 +40,43 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/items/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await itemsCollection.findOne(query);
+      res.send(result);
+    });
+
     app.post("/items", async (req, res) => {
       const items = req.body;
+      items.status = "";
       const result = await itemsCollection.insertOne(items);
+      res.send(result);
+    });
+
+    app.patch("/items/:id", async (req, res) => {
+      const id = req.params.id;
+      const updateDoc = {
+        $set: req.body,
+      };
+      const query = { _id: new ObjectId(id) };
+      const result = await itemsCollection.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
+    // items related APIs
+    app.get("/recovered-items", async (req, res) => {
+      const result = await recoveredItemsCollection
+        .find()
+        .sort({ recoveredDate: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+    app.post("/recovered-items", async (req, res) => {
+      const items = req.body;
+      items.status = "recovered";
+      const result = await recoveredItemsCollection.insertOne(items);
       res.send(result);
     });
 
