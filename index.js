@@ -36,7 +36,18 @@ async function run() {
 
     // items related APIs
     app.get("/items", async (req, res) => {
-      const result = await itemsCollection.find().sort({ date: -1 }).toArray();
+      const email = req.query.email;
+      let result;
+
+      if (email) {
+        result = await itemsCollection
+          .find({ contact_info: email })
+          .sort({ date: -1 })
+          .toArray();
+      } else {
+        result = await itemsCollection.find().sort({ date: -1 }).toArray();
+      }
+
       res.send(result);
     });
 
