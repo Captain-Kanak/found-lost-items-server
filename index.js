@@ -67,10 +67,21 @@ async function run() {
 
     app.patch("/items/:id", async (req, res) => {
       const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
       const updateDoc = {
         $set: req.body,
       };
+      const result = await itemsCollection.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
+    app.put("/items/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedItem = req.body;
       const query = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: updatedItem,
+      };
       const result = await itemsCollection.updateOne(query, updateDoc);
       res.send(result);
     });
@@ -84,8 +95,11 @@ async function run() {
 
     // items related APIs
     app.get("/recovered-items", async (req, res) => {
+      const email = req.query.email;
+      const query = { publishedBy: email };
+
       const result = await recoveredItemsCollection
-        .find()
+        .find(query)
         .sort({ recoveredDate: -1 })
         .toArray();
       res.send(result);
