@@ -3,13 +3,43 @@ const express = require("express");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
+// firebase admin
+const admin = require("firebase-admin");
+const serviceAccount = require("./firebase-admin-key.json");
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
 // create app & port
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:5173"],
+    credentials: true,
+  })
+);
 app.use(express.json());
+
+const verifyFirebaseToken = async (req, res, next) => {
+  const authHeader = req?.headers?.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.decoded = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+};
 
 // database management
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.0d3a79b.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -37,18 +67,24 @@ async function run() {
     // items related APIs
     app.get("/items", async (req, res) => {
       const email = req.query.email;
-      let result;
 
-      if (email) {
-        result = await itemsCollection
-          .find({ contact_info: email })
-          .sort({ date: -1 })
-          .toArray();
-      } else {
-        result = await itemsCollection.find().sort({ date: -1 }).toArray();
+      try {
+        let result;
+
+        if (email) {
+          result = await itemsCollection
+            .find({ contact_info: email })
+            .sort({ date: -1 })
+            .toArray();
+        } else {
+          result = await itemsCollection.find().sort({ date: -1 }).toArray();
+        }
+
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching items:", error);
+        res.status(500).send({ message: "Internal Server Error" });
       }
-
-      res.send(result);
     });
 
     app.get("/items/:id", async (req, res) => {
@@ -93,10 +129,14 @@ async function run() {
       res.send(result);
     });
 
-    // items related APIs
-    app.get("/recovered-items", async (req, res) => {
+    // Recovered items related APIs
+    app.get("/recovered-items", verifyFirebaseToken, async (req, res) => {
       const email = req.query.email;
       const query = { publishedBy: email };
+
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
 
       const result = await recoveredItemsCollection
         .find(query)
@@ -113,10 +153,10 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
