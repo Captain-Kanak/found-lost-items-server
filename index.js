@@ -5,7 +5,11 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 // firebase admin
 const admin = require("firebase-admin");
-const serviceAccount = require("./firebase-admin-key.json");
+const decoded = Buffer.from(
+  process.env.FIREBASE_SERVICES_KEY,
+  "base64"
+).toString("utf8");
+const serviceAccount = JSON.parse(decoded);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
