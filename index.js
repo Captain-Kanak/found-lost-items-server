@@ -21,29 +21,11 @@ const port = process.env.PORT || 3000;
 // Middleware
 app.use(
   cors({
-    origin: ["https://find-lost-items-993d8.web.app"],
+    origin: ["https://find-lost-items-993d8.web.app", "http://localhost:5173"],
     credentials: true,
   })
 );
 app.use(express.json());
-
-const verifyFirebaseToken = async (req, res, next) => {
-  const authHeader = req?.headers?.authorization;
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).send({ message: "unauthorized access" });
-  }
-
-  const token = authHeader.split(" ")[1];
-
-  try {
-    const decoded = await admin.auth().verifyIdToken(token);
-    req.decoded = decoded;
-    next();
-  } catch (error) {
-    return res.status(401).send({ message: "unauthorized access" });
-  }
-};
 
 // database management
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.0d3a79b.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -67,6 +49,25 @@ async function run() {
     const recoveredItemsCollection = client
       .db("found_lost_items")
       .collection("recovered_items");
+
+    // Custom Middleware
+    const verifyFirebaseToken = async (req, res, next) => {
+      const authHeader = req?.headers?.authorization;
+
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+
+      const token = authHeader.split(" ")[1];
+
+      try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded = decoded;
+        next();
+      } catch (error) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+    };
 
     // items related APIs
     app.get("/items", async (req, res) => {
@@ -98,10 +99,10 @@ async function run() {
       res.send(result);
     });
 
+    // items save to the database
     app.post("/items", async (req, res) => {
-      const items = req.body;
-      items.status = "";
-      const result = await itemsCollection.insertOne(items);
+      const item = req.body;
+      const result = await itemsCollection.insertOne(item);
       res.send(result);
     });
 
