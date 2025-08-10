@@ -82,7 +82,10 @@ async function run() {
             .sort({ date: -1 })
             .toArray();
         } else {
-          result = await itemsCollection.find().sort({ date: -1 }).toArray();
+          result = await itemsCollection
+            .find({ status: "not-recovered" })
+            .sort({ date: -1 })
+            .toArray();
         }
 
         res.send(result);
@@ -102,6 +105,7 @@ async function run() {
     // items save to the database
     app.post("/items", async (req, res) => {
       const item = req.body;
+      item.status = "not-recovered";
       const result = await itemsCollection.insertOne(item);
       res.send(result);
     });
@@ -137,16 +141,19 @@ async function run() {
     // Recovered items related APIs
     app.get("/recovered-items", verifyFirebaseToken, async (req, res) => {
       const email = req.query.email;
-      const query = { publishedBy: email };
 
       if (email !== req.decoded.email) {
         return res.status(403).send({ message: "forbidden access" });
       }
 
+      // Filter by recoveryInfo.email
+      const query = { "recoveryInfo.email": email };
+
       const result = await recoveredItemsCollection
         .find(query)
-        .sort({ recoveredDate: -1 })
+        .sort({ "recoveryInfo.recoveredDate": -1 })
         .toArray();
+
       res.send(result);
     });
 
