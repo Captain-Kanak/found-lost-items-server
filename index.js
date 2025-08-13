@@ -95,6 +95,27 @@ async function run() {
       }
     });
 
+    // get my items
+    app.get("/myItems", verifyFirebaseToken, async (req, res) => {
+      const email = req.query.email;
+
+      try {
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ message: "forbidden access" });
+        }
+
+        const result = await itemsCollection
+          .find({ contact_info: email })
+          .sort({ date: -1 })
+          .toArray();
+
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching items:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
     app.get("/items/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
