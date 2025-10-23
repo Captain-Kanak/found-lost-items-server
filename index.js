@@ -2,11 +2,12 @@ import dotenv from "dotenv";
 dotenv.config();
 import express, { json } from "express";
 import cors from "cors";
-import Item from "./models/item.model.js";
 import connectMongooseDb from "./lib/mongoose.js";
+import Item from "./models/item.model.js";
+import User from "./models/user.model.js";
 
-// Import the default export and name it 'admin'
 import admin from "firebase-admin";
+import RecoveredItem from "./models/recoveredItem.model.js";
 
 // firebase admin initialize
 let serviceAccount;
@@ -15,28 +16,23 @@ let decodedServiceKeyString;
 try {
   const rawEnvKey = process.env.FIREBASE_SERVICES_KEY;
 
-  try {
-    decodedServiceKeyString = Buffer.from(rawEnvKey, "base64").toString("utf8");
-  } catch (decodeError) {
-    console.error("Decode Error:", decodeError.message);
+  if (!rawEnvKey) {
+    throw new Error(
+      "FIREBASE_SERVICES_KEY is not defined in environment variables."
+    );
   }
 
-  try {
-    serviceAccount = JSON.parse(decodedServiceKeyString);
-  } catch (parseError) {
-    console.error("Parse Error:", parseError.message);
-  }
+  decodedServiceKeyString = Buffer.from(rawEnvKey, "base64").toString("utf8");
+  serviceAccount = JSON.parse(decodedServiceKeyString);
 
-  // Use 'admin' directly for initialization
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
   });
 } catch (error) {
-  console.error("Root Error message:", error.message);
+  console.error("Firebase Admin Initialization Error:", error.message);
   process.exit(1);
 }
 
-// Use 'admin.auth()' after initialization
 const firebaseAuth = admin.auth();
 
 // Secure API Middleware
@@ -50,8 +46,8 @@ const verifyFirebaseToken = async (req, res, next) => {
   const token = authHeader.split(" ")[1];
 
   try {
-    const decoded = await firebaseAuth.verifyIdToken(token);
-    req.decoded = decoded;
+    const decodedToken = await firebaseAuth.verifyIdToken(token);
+    req.decoded = decodedToken;
     next();
   } catch (error) {
     console.error("Firebase token verification error:", error);
@@ -72,54 +68,146 @@ app.use(
 );
 app.use(json());
 
-// GET all items (or by email for individual user)
-app.get("/items", async (req, res) => {
+// ------------ API ROUTES START -----------
+
+// --------- User Routes ---------
+
+// GET all users or by email query
+app.get("/users", async (req, res) => {
   try {
-    // Query parameter for the owner's email
     const email = req.query.email;
 
-    // Define a variable to hold the result
-    let result;
+    let users;
 
-    // If email is provided, find items by provided email or all non-recovered
     if (email) {
-      // Find items where contact_info matches the provided email
-      result = await Item.find({ contactInfo: email }).sort({ createdAt: -1 });
+      // Fetch user by email
+      const user = await User.findOne({ email }).lean();
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      users = user;
     } else {
-      // Find all non-recovered items by default
-      result = await Item.find({ status: "not-recovered" }).sort({
-        createdAt: -1,
-      });
+      // Fetch all users
+      users = await User.find().sort({ createdAt: -1 }).lean();
     }
 
-    // Send the result
-    res.send(result, { status: 200 });
+    res.status(200).json(users);
   } catch (error) {
-    // Log the error
+    console.error("Error fetching users:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+// GET user by ID
+app.get("/users/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const result = await User.findById(id).lean();
+    if (!result) {
+      return res.status(404).send({ message: "User not found" });
+    }
+    res.status(200).send(result); // Changed to send with status
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
+});
+
+// POST a new user into database
+app.post("/users", async (req, res) => {
+  try {
+    const userData = req.body;
+    const { email } = userData;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ message: "User already exists" });
+    }
+
+    // Create new user
+    const newUser = await User.create(userData);
+
+    // Return the newly created user
+    res.status(201).json(newUser);
+  } catch (error) {
+    console.error("Error adding user:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+// Update user by email
+app.patch("/users", verifyFirebaseToken, async (req, res) => {
+  try {
+    const email = req.query.email;
+    const updateData = req.body;
+
+    if (!email) {
+      return res
+        .status(400)
+        .send({ message: "Email query parameter is required" });
+    }
+
+    // Ensure the authenticated user is updating their own profile
+    if (email !== req.decoded.email) {
+      return res
+        .status(403)
+        .send({ message: "Forbidden: You can only update your own profile." });
+    }
+
+    const result = await User.findOneAndUpdate(
+      { email },
+      { $set: updateData },
+      { new: true }
+    );
+
+    if (!result) {
+      return res.status(404).send({ message: "User not found" });
+    }
+
+    res.status(200).send(result);
+  } catch (error) {
+    console.error("Error updating user:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
+});
+
+// ---------- Items Routes ----------
+
+// GET all items
+app.get("/items", async (req, res) => {
+  try {
+    const result = await Item.find({ status: "not-recovered" }).sort({
+      createdAt: -1,
+    });
+
+    res.status(200).send(result);
+  } catch (error) {
     console.error("Error fetching items:", error);
     res.status(500).send({ message: "Internal Server Error" });
   }
 });
 
 // GET user's own items (requires authentication valid user)
-app.get("/myItems", async (req, res) => {
-  const email = req.query.email; // Query parameter for the owner's email
-
+app.get("/myItems/:userId", verifyFirebaseToken, async (req, res) => {
   try {
-    // Ensure the requested email matches the authenticated user's email
-    // if (email !== req.decoded.email) {
-    //   return res.status(403).send({ message: "forbidden access" });
-    // }
+    const userId = req.params.userId;
 
-    // Find items where contact_info matches the provided email
-    const result = await Item.find({ contact_info: email })
-      .sort({ date: -1 })
-      .lean();
+    if (!userId) {
+      return res
+        .status(400)
+        .send({ message: "userId query parameter is required" });
+    }
 
-    // Send the result
-    res.send(result, { status: 200 });
+    const result = await Item.find({ userId }).sort({ createdAt: -1 }).lean();
+    res.status(200).send(result);
   } catch (error) {
-    // Log the error
     console.error("Error fetching user's items:", error);
     res.status(500).send({ message: "Internal Server Error" });
   }
@@ -128,33 +216,23 @@ app.get("/myItems", async (req, res) => {
 // GET a single item by ID
 app.get("/items/:id", async (req, res) => {
   try {
-    // Get the item ID from the request parameters
     const id = req.params.id;
-
-    // Mongoose's findById handles casting string ID to ObjectId automatically
     const result = await Item.findById(id).lean();
-
-    // Check if the item was found
     if (!result) {
       return res.status(404).send({ message: "Item not found" });
     }
-
-    // Send the result
-    res.send(result);
+    res.status(200).send(result);
   } catch (error) {
-    // Log the error
     console.error("Error fetching single item:", error);
     res.status(500).send({ message: "Internal Server Error" });
   }
 });
 
 // POST a new item (requires authentication logged in user)
-app.post("/items", async (req, res) => {
+app.post("/items", verifyFirebaseToken, async (req, res) => {
+  // Added verifyFirebaseToken
   try {
-    // Get the item data from the request body
     const itemData = req.body;
-
-    // Destructure required fields
     const {
       postType,
       thumbnail,
@@ -178,90 +256,112 @@ app.post("/items", async (req, res) => {
       return res.status(400).send({ message: "Missing required fields" });
     }
 
-    // Create a new item
     const result = await Item.create(itemData);
-
-    // Return the created item
     res.status(201).send(result);
   } catch (error) {
-    // Handle errors
     console.error("Error creating item:", error);
     res.status(500).send({ message: "Internal Server Error" });
   }
 });
 
 // PATCH update an item by ID (requires authentication and ownership check)
-app.patch("/items/:id", async (req, res) => {
+app.patch("/items/:id", verifyFirebaseToken, async (req, res) => {
   try {
     const id = req.params.id;
     const updateData = req.body;
 
-    // First, find the item
     const itemToUpdate = await Item.findById(id);
 
-    // Check if the item was found
     if (!itemToUpdate) {
       return res.status(404).send({ message: "Item not found" });
     }
 
-    // Ensure the authenticated user owns the item
-    // if (itemToUpdate.contactInfo !== req.decoded.email) {
-    //   return res
-    //     .status(403)
-    //     .send({ message: "Forbidden: You do not own this item" });
-    // }
-
-    // Update the item
     const result = await Item.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
     }).lean();
 
-    // Send the updated item
-    res.send(result, { status: 200 });
+    res.status(200).send(result);
   } catch (error) {
-    // Log the error
     console.error("Error patching item:", error);
     res.status(500).send({ message: "Internal Server Error" });
   }
 });
 
-// app.delete("/items/:id", verifyFirebaseToken, async (req, res) => {};
 // DELETE an item by ID (requires authentication and ownership check)
-app.delete("/items/:id", async (req, res) => {
+app.delete("/items/:id", verifyFirebaseToken, async (req, res) => {
   try {
     const id = req.params.id;
 
-    // First, find the item
     const itemToDelete = await Item.findById(id);
 
-    // Check if the item was found
     if (!itemToDelete) {
       return res.status(404).send({ message: "Item not found" });
     }
 
-    // Ensure the authenticated user owns the item
-    // if (itemToDelete.contactInfo !== req.decoded.email) {
-    //   return res
-    //     .status(403)
-    //     .send({ message: "Forbidden: You do not own this item" });
-    // }
+    if (itemToDelete.userId.toString() !== req.decoded.uid) {
+      return res
+        .status(403)
+        .send({ message: "Forbidden: You do not own this item" });
+    }
 
-    // Delete the item
     const result = await Item.findByIdAndDelete(id).lean();
 
-    // Send the deleted item
-    res.send({
+    res.status(200).send({
       message: "Item deleted successfully",
       data: result,
-      status: 200,
     });
   } catch (error) {
-    // Log the error
     console.error("Error deleting item:", error);
     res.status(500).send({ message: "Internal Server Error" });
   }
 });
+
+// ------------ Recovery Routes -----------
+
+// GET all recovery items
+app.get("/recoverItems", async (req, res) => {
+  try {
+    const result = await RecoveredItem.find().lean();
+    res.status(200).send(result);
+  } catch (error) {
+    console.error("Error fetching recovery items:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
+});
+
+// POST a new recovery item
+app.post("/recoverItems", async (req, res) => {
+  try {
+    const clientRecoveredData = req.body;
+    const { itemId, userId, recoveryInfo } = clientRecoveredData;
+
+    // Validate required fields
+    if (!itemId || !userId || !recoveryInfo) {
+      return res
+        .status(400)
+        .send({ message: "Missing required recovery information" });
+    }
+
+    // Create a new RecoveredItem
+    const createdRecoveredItem = await RecoveredItem.create(
+      clientRecoveredData
+    );
+
+    await Item.findByIdAndUpdate(
+      itemId,
+      { status: "recovered" },
+      { new: true }
+    );
+
+    res.status(201).send(createdRecoveredItem);
+  } catch (error) {
+    console.error("Error creating recovered item:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
+});
+
+// ------------ API ROUTES END -----------
 
 // ---------- server default response ----------
 app.get("/", (req, res) => {
