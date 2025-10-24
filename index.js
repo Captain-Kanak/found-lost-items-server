@@ -77,7 +77,7 @@ app.use(json());
 // --------- User Routes ---------
 
 // GET all users or by email query
-app.get("/users", verifyFirebaseToken, async (req, res) => {
+app.get("/users", async (req, res) => {
   try {
     const email = req.query.email;
 
@@ -105,7 +105,7 @@ app.get("/users", verifyFirebaseToken, async (req, res) => {
 });
 
 // GET user by ID
-app.get("/users/:id", verifyFirebaseToken, async (req, res) => {
+app.get("/users/:id", async (req, res) => {
   try {
     const id = req.params.id;
     const result = await User.findById(id).lean();
