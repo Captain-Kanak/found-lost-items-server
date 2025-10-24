@@ -40,7 +40,7 @@ const verifyFirebaseToken = async (req, res, next) => {
   const authHeader = req?.headers?.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).send({ message: "unauthorized access" });
+    return res.status(401).json({ message: "unauthorized access" });
   }
 
   const token = authHeader.split(" ")[1];
@@ -51,7 +51,7 @@ const verifyFirebaseToken = async (req, res, next) => {
     next();
   } catch (error) {
     console.error("Firebase token verification error:", error);
-    return res.status(401).send({ message: "unauthorized access" });
+    return res.status(401).json({ message: "unauthorized access" });
   }
 };
 
@@ -77,7 +77,7 @@ app.use(json());
 // --------- User Routes ---------
 
 // GET all users or by email query
-app.get("/users", async (req, res) => {
+app.get("/users", verifyFirebaseToken, async (req, res) => {
   try {
     const email = req.query.email;
 
@@ -105,7 +105,7 @@ app.get("/users", async (req, res) => {
 });
 
 // GET user by ID
-app.get("/users/:id", async (req, res) => {
+app.get("/users/:id", verifyFirebaseToken, async (req, res) => {
   try {
     const id = req.params.id;
     const result = await User.findById(id).lean();
@@ -167,13 +167,6 @@ app.patch("/users", verifyFirebaseToken, async (req, res) => {
         .send({ message: "Email query parameter is required" });
     }
 
-    // Ensure the authenticated user is updating their own profile
-    if (email !== req.decoded.email) {
-      return res
-        .status(403)
-        .send({ message: "Forbidden: You can only update your own profile." });
-    }
-
     const result = await User.findOneAndUpdate(
       { email },
       { $set: updateData },
@@ -192,26 +185,26 @@ app.patch("/users", verifyFirebaseToken, async (req, res) => {
 });
 
 // DELETE user by ID
-app.delete("/users/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const result = await User.findByIdAndDelete(id);
-    if (!result) {
-      return res.status(404).send({ message: "User not found" });
-    }
-    res.status(200).send({ message: "User deleted successfully" });
-  } catch (error) {
-    console.error("Error deleting user:", error);
-    res.status(500).send({ message: "Internal Server Error" });
-  }
-});
+// app.delete("/users/:id", verifyFirebaseToken, async (req, res) => {
+//   try {
+//     const id = req.params.id;
+//     const result = await User.findByIdAndDelete(id);
+//     if (!result) {
+//       return res.status(404).send({ message: "User not found" });
+//     }
+//     res.status(200).send({ message: "User deleted successfully" });
+//   } catch (error) {
+//     console.error("Error deleting user:", error);
+//     res.status(500).send({ message: "Internal Server Error" });
+//   }
+// });
 
 // ---------- Items Routes ----------
 
 // GET all items
 app.get("/items", async (req, res) => {
   try {
-    const result = await Item.find({ status: "not-recovered" }).sort({
+    const result = await Item.find().sort({
       createdAt: -1,
     });
 
@@ -293,7 +286,7 @@ app.post("/items", verifyFirebaseToken, async (req, res) => {
 });
 
 // PATCH update an item by ID (requires authentication and ownership check)
-app.patch("/items/:id", async (req, res) => {
+app.patch("/items/:id", verifyFirebaseToken, async (req, res) => {
   try {
     const id = req.params.id;
     const updateData = req.body;
@@ -327,12 +320,6 @@ app.delete("/items/:id", verifyFirebaseToken, async (req, res) => {
       return res.status(404).send({ message: "Item not found" });
     }
 
-    if (itemToDelete.userId.toString() !== req.decoded.uid) {
-      return res
-        .status(403)
-        .send({ message: "Forbidden: You do not own this item" });
-    }
-
     const result = await Item.findByIdAndDelete(id).lean();
 
     res.status(200).send({
@@ -348,7 +335,7 @@ app.delete("/items/:id", verifyFirebaseToken, async (req, res) => {
 // ------------ Recovery Routes -----------
 
 // GET all recovery items
-app.get("/recoverItems", async (req, res) => {
+app.get("/recoverItems", verifyFirebaseToken, async (req, res) => {
   try {
     const result = await RecoveredItem.find().sort({ createdAt: -1 }).lean();
     res.status(200).send(result);
@@ -359,7 +346,7 @@ app.get("/recoverItems", async (req, res) => {
 });
 
 // POST a new recovery item
-app.post("/recoverItems", async (req, res) => {
+app.post("/recoverItems", verifyFirebaseToken, async (req, res) => {
   try {
     const clientRecoveredData = req.body;
     const { itemId, userId, recoveryInfo } = clientRecoveredData;
