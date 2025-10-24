@@ -62,7 +62,11 @@ const port = process.env.PORT || 3000;
 // App Middleware
 app.use(
   cors({
-    origin: ["https://find-lost-items-993d8.web.app", "http://localhost:5173"],
+    origin: [
+      "https://found-lost-items-client.vercel.app",
+      "https://find-lost-items-993d8.web.app",
+      "http://localhost:5173",
+    ],
     credentials: true,
   })
 );
@@ -115,7 +119,7 @@ app.get("/users/:id", async (req, res) => {
   }
 });
 
-// POST a new user into database
+// POST a new or existing user into database
 app.post("/users", async (req, res) => {
   try {
     const userData = req.body;
@@ -126,18 +130,27 @@ app.post("/users", async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(409).json({ message: "User already exists" });
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      // Create new user
+      user = await User.create(userData);
+      return res.status(201).json({
+        message: "New user created",
+        user,
+      });
+    } else {
+      // Update existing user's lastSignIn
+      user.lastSignIn = new Date();
+      await user.save();
+
+      return res.status(200).json({
+        message: "User sign-in updated",
+        user,
+      });
     }
-
-    // Create new user
-    const newUser = await User.create(userData);
-
-    // Return the newly created user
-    res.status(201).json(newUser);
   } catch (error) {
-    console.error("Error adding user:", error);
+    console.error("Error adding/updating user:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 });
@@ -174,6 +187,21 @@ app.patch("/users", verifyFirebaseToken, async (req, res) => {
     res.status(200).send(result);
   } catch (error) {
     console.error("Error updating user:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
+});
+
+// DELETE user by ID
+app.delete("/users/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const result = await User.findByIdAndDelete(id);
+    if (!result) {
+      return res.status(404).send({ message: "User not found" });
+    }
+    res.status(200).send({ message: "User deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting user:", error);
     res.status(500).send({ message: "Internal Server Error" });
   }
 });
@@ -265,7 +293,7 @@ app.post("/items", verifyFirebaseToken, async (req, res) => {
 });
 
 // PATCH update an item by ID (requires authentication and ownership check)
-app.patch("/items/:id", verifyFirebaseToken, async (req, res) => {
+app.patch("/items/:id", async (req, res) => {
   try {
     const id = req.params.id;
     const updateData = req.body;
@@ -322,7 +350,7 @@ app.delete("/items/:id", verifyFirebaseToken, async (req, res) => {
 // GET all recovery items
 app.get("/recoverItems", async (req, res) => {
   try {
-    const result = await RecoveredItem.find().lean();
+    const result = await RecoveredItem.find().sort({ createdAt: -1 }).lean();
     res.status(200).send(result);
   } catch (error) {
     console.error("Error fetching recovery items:", error);
